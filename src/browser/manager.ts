@@ -1,4 +1,5 @@
-import { BrowserWindow, WebContentsView, session } from "electron";
+import { BrowserWindow, WebContentsView, session, Menu } from "electron";
+import { MouseGesture } from "./gestures";
 import { randomUUID } from "node:crypto";
 import type { Tab } from "../shared/types";
 export function normalizeUrl(input: string) {
@@ -43,6 +44,10 @@ export class BrowserManager {
     public changed: () => void,
   ) {
     win.on("resize", () => this.layout());
+    // Native child views and the chrome renderer have separate keyboard focus.
+    win.webContents.on("before-mouse-event", (_event, input) => {
+      if (input.type === "mouseDown") win.webContents.focus();
+    });
     win.on("closed", () => {
       for (const e of this.entries.values())
         if (!e.view.webContents.isDestroyed()) e.view.webContents.close();
@@ -129,12 +134,84 @@ export class BrowserManager {
         event.preventDefault();
       }
     });
-    wc.on("before-mouse-event", (_event, input) => {
+    const gesture = new MouseGesture();
+    let suppressMenuUntil = 0;
+    wc.on("blur", () => gesture.cancel());
+    wc.on("did-start-navigation", () => gesture.cancel());
+    wc.on("before-mouse-event", (event, input) => {
+      if (input.type === "mouseDown" && id === this.active && !this.hidden)
+        wc.focus();
       if (
         this.controlled === id &&
         ["mouseDown", "mouseWheel"].includes(input.type)
       )
         this.onInterrupt();
+      const result = gesture.handle(input);
+      if (result.consume) {
+        event.preventDefault();
+        suppressMenuUntil = Date.now() + 500;
+      }
+      if (result.action) {
+        this.onInterrupt();
+        // Finish dispatching the mouse event before closing/navigating a view.
+        setImmediate(() => {
+          if (wc.isDestroyed() || this.active !== id || this.hidden) return;
+          const history = wc.navigationHistory;
+          switch (result.action) {
+            case "L":
+              if (history.canGoBack()) history.goBack();
+              break;
+            case "R":
+              if (history.canGoForward()) history.goForward();
+              break;
+            case "UD":
+              wc.reload();
+              break;
+            case "DR":
+              this.close(id);
+              break;
+          }
+        });
+      }
+    });
+    wc.on("context-menu", (_event, params) => {
+      if (gesture.active || Date.now() < suppressMenuUntil) return;
+      Menu.buildFromTemplate(
+        params.isEditable
+          ? [
+              { role: "cut" },
+              { role: "copy" },
+              { role: "paste" },
+              { role: "selectAll" },
+            ]
+          : params.selectionText
+            ? [{ role: "copy" }]
+            : [
+                {
+                  label: "后退",
+                  enabled: wc.navigationHistory.canGoBack(),
+                  click: () => {
+                    this.onInterrupt();
+                    wc.navigationHistory.goBack();
+                  },
+                },
+                {
+                  label: "前进",
+                  enabled: wc.navigationHistory.canGoForward(),
+                  click: () => {
+                    this.onInterrupt();
+                    wc.navigationHistory.goForward();
+                  },
+                },
+                {
+                  label: "刷新",
+                  click: () => {
+                    this.onInterrupt();
+                    wc.reload();
+                  },
+                },
+              ],
+      ).popup({ window: this.win });
     });
     this.select(id);
     void wc.loadURL(url).catch(() => {});
@@ -201,9 +278,9 @@ export class BrowserManager {
       this.changed();
     }
     for (const [id, e] of this.entries) {
-      e.view.setVisible(
-        id === this.active && !this.hidden && e.tab.url !== "about:blank",
-      );
+      const visible =
+        id === this.active && !this.hidden && e.tab.url !== "about:blank";
+      if (e.view.getVisible() !== visible) e.view.setVisible(visible);
       e.view.setBounds({
         x: 0,
         y: 94,

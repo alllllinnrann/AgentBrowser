@@ -1,7 +1,7 @@
 {
   "name": "agent-browser",
   "productName": "轻舟 Agent Browser",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "A local-first browser with a visible, interruptible web agent",
   "main": "dist/main.cjs",
@@ -15,6 +15,8 @@
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "zod": "^4.1.0"
   },
   "devDependencies": {
@@ -30,7 +32,11 @@
   "build": {
     "appId": "local.lightboat.agentbrowser",
     "executableName": "AgentBrowser",
-    "electronLanguages": ["zh-CN", "zh-TW", "en-US"],
+    "electronLanguages": [
+      "zh-CN",
+      "zh-TW",
+      "en-US"
+    ],
     "directories": {
       "output": "outputs/releases"
     },
@@ -44,6 +50,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
+      "include": "scripts/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,

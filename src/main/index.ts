@@ -227,6 +227,7 @@ app.whenReady().then(async () => {
       case "overlay":
         browser.hidden = z.boolean().parse(payload);
         browser.layout();
+        if (browser.hidden) win.webContents.focus();
         break;
       case "newChat":
         newChat();

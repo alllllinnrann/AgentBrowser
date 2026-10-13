@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { State, Settings, Schedule } from "../shared/types";
 import { Icon, IconButton } from "./icons";
+import { MarkdownMessage } from "./markdown";
 import "./style.css";
 const detached = new URLSearchParams(location.search).has("chat");
 const toolLabels: Record<string, string> = {
@@ -25,6 +26,8 @@ function App() {
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   const address = useRef<HTMLInputElement>(null),
+    editingAddress = useRef(false),
+    addressTab = useRef<string | undefined>(undefined),
     end = useRef<HTMLDivElement>(null);
   const call = async (command: string, payload?: any) => {
     try {
@@ -54,7 +57,9 @@ function App() {
   const tab = s?.tabs.find((t) => t.id === s.activeTab),
     chat = s?.conversations.find((c) => c.id === s.activeConversation);
   useEffect(() => {
-    setUrl(tab?.url === "about:blank" ? "" : tab?.url || "");
+    if (!editingAddress.current || addressTab.current !== tab?.id)
+      setUrl(tab?.url === "about:blank" ? "" : tab?.url || "");
+    addressTab.current = tab?.id;
   }, [tab?.url, tab?.id]);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
@@ -157,6 +162,8 @@ function App() {
               className="address"
               onSubmit={(e) => {
                 e.preventDefault();
+                editingAddress.current = false;
+                address.current?.blur();
                 call("navigate", url);
               }}
             >
@@ -170,7 +177,21 @@ function App() {
                 placeholder="搜索必应或输入网址"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                onFocus={(e) => e.target.select()}
+                title="输入网址或搜索 · Ctrl+L"
+                spellCheck={false}
+                onFocus={(e) => {
+                  editingAddress.current = true;
+                  e.target.select();
+                }}
+                onBlur={() => {
+                  editingAddress.current = false;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setUrl(tab?.url === "about:blank" ? "" : tab?.url || "");
+                    e.currentTarget.blur();
+                  }
+                }}
               />
             </form>
             {tab?.zoom !== 1 && (
@@ -331,7 +352,17 @@ function App() {
                       })}
                     </time>
                   </div>
-                  <div className="message-body">{m.content}</div>
+                  <div className="message-body">
+                    {m.role === "assistant" ? (
+                      <MarkdownMessage
+                        openLink={(href) => void call("newTab", href)}
+                      >
+                        {m.content}
+                      </MarkdownMessage>
+                    ) : (
+                      m.content
+                    )}
+                  </div>
                 </div>
               ),
             )}
@@ -341,7 +372,11 @@ function App() {
                   <Icon name="agent" size={14} />
                 </div>
                 <div className="message-body">
-                  {s.draft}
+                  <MarkdownMessage
+                    openLink={(href) => void call("newTab", href)}
+                  >
+                    {s.draft}
+                  </MarkdownMessage>
                   <span className="caret" />
                 </div>
               </div>
