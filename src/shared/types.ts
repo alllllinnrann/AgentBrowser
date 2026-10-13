@@ -3,6 +3,7 @@ export type Message = {
   role: "user" | "assistant" | "tool";
   content: string;
   time: number;
+  reasoning_content?: string;
 };
 export type Conversation = {
   id: string;
@@ -59,7 +60,17 @@ export type State = {
 };
 export type WireMessage = {
   role: string;
-  content: string | null;
+  content:
+    | string
+    | null
+    | (
+        | { type: "text"; text: string }
+        | {
+            type: "image_url";
+            image_url: { url: string; detail?: "auto" | "high" | "low" };
+          }
+      )[];
+  reasoning_content?: string;
   tool_calls?: any[];
   tool_call_id?: string;
 };

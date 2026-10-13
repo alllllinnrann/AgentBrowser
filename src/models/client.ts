@@ -32,6 +32,14 @@ export async function completion(
   );
   if (!res.ok) {
     const body = (await res.text()).slice(0, 1200);
+    if (
+      res.status === 400 &&
+      messages.some((m) => Array.isArray(m.content)) &&
+      /image|vision|multimodal|图片/i.test(body)
+    )
+      throw new Error(
+        `当前模型或接口拒绝图片输入，请使用支持视觉的模型，或继续使用网页文字读取。接口详情：${body}`,
+      );
     throw new Error(`模型接口 ${res.status}：${body}`);
   }
   if (!res.body) throw new Error("模型接口没有返回正文");
@@ -47,6 +55,7 @@ export async function completion(
   let buffer = "",
     content = "",
     finish = "";
+  let reasoning: string | undefined;
   const calls: any[] = [];
   function line(s: string) {
     if (!s.startsWith("data:")) return;
@@ -58,6 +67,8 @@ export async function completion(
     if (!choice) return;
     finish = choice.finish_reason || finish;
     const d = choice.delta || {};
+    if (typeof d.reasoning_content === "string")
+      reasoning = (reasoning ?? "") + d.reasoning_content;
     if (typeof d.content === "string") {
       content += d.content;
       onText(content);
@@ -98,6 +109,7 @@ export async function completion(
   return {
     role: "assistant",
     content: content || null,
+    ...(reasoning !== undefined ? { reasoning_content: reasoning } : {}),
     ...(calls.length ? { tool_calls: calls.filter(Boolean) } : {}),
   };
 }

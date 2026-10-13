@@ -1,7 +1,21 @@
 import { BrowserWindow, WebContentsView, session, Menu } from "electron";
 import { MouseGesture } from "./gestures";
 import { randomUUID } from "node:crypto";
+import type { WebFrameMain } from "electron";
 import type { Tab } from "../shared/types";
+async function readWithTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("框架读取超时")), 2500);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export function normalizeUrl(input: string) {
   const text = input.trim();
   if (text === "about:blank") return text;
@@ -31,6 +45,7 @@ type Entry = {
   tab: Tab;
   epoch: number;
   scroll?: number;
+  snapshots?: Map<string, { frame: WebFrameMain; snapshot: string }>;
 };
 export class BrowserManager {
   entries = new Map<string, Entry>();
@@ -102,7 +117,8 @@ export class BrowserManager {
         event.preventDefault();
     });
     wc.on("did-start-navigation", (_event, _url, _inPlace, main) => {
-      if (main) e.epoch++;
+      // Child-frame navigation invalidates element references too.
+      e.epoch++;
     });
     const refresh = () => {
       if (wc.isDestroyed()) return;
@@ -301,19 +317,113 @@ export class BrowserManager {
     e.view.webContents.setZoomFactor(e.tab.zoom);
     this.changed();
   }
-  async observe(id: string) {
+  async observe(
+    id: string,
+    options: { frame_id?: string; offset?: number; query?: string } = {},
+  ) {
     const e = this.get(id);
+    const wc = e.view.webContents;
     const snapshot = randomUUID();
-    const result = await e.view.webContents.executeJavaScriptInIsolatedWorld(
-      999,
-      [{ code: `(${observeDOM.toString()})(${JSON.stringify(snapshot)})` }],
+    const epoch = e.epoch;
+    const allFrames = wc.mainFrame.framesInSubtree;
+    const frames = options.frame_id
+      ? allFrames.filter((f) => String(f.frameTreeNodeId) === options.frame_id)
+      : allFrames.slice(0, 24);
+    if (!frames.length) throw new Error("目标 iframe 已关闭或导航，请重新观察");
+    const results: any[] = [];
+    const snapshots = new Map<
+      string,
+      { frame: WebFrameMain; snapshot: string }
+    >();
+    e.snapshots = snapshots;
+    await Promise.all(
+      frames.map(async (frame, index) => {
+        const frameId = String(frame.frameTreeNodeId);
+        try {
+          const code = `(${observeDOM.toString()})(${JSON.stringify(snapshot)},${JSON.stringify(options)})`;
+          const result: any = await readWithTimeout(
+            frame === wc.mainFrame
+              ? wc.executeJavaScriptInIsolatedWorld(999, [{ code }])
+              : frame.executeJavaScript(code),
+          );
+          snapshots.set(frameId, { frame, snapshot });
+          results[index] = {
+            ...result,
+            frame_id: frameId,
+            elements: result.elements.map((el: any) => ({
+              ...el,
+              ref: `${frameId}:${el.ref}`,
+            })),
+          };
+        } catch {
+          results[index] = {
+            frame_id: frameId,
+            error: "该框架暂时无法读取（可能正在导航或读取超时）",
+            text: "",
+            elements: [],
+          };
+        }
+      }),
     );
+    if (epoch !== e.epoch) throw new Error("页面正在导航，请稍后重新观察");
+    const limit = options.frame_id
+      ? 14000
+      : Math.max(1200, Math.floor(24000 / frames.length));
+    const text = results
+      .map((r) => `[frame ${r.frame_id}]\n${r.text.slice(0, limit)}`)
+      .join("\n\n");
     return {
-      ...result,
+      url: wc.getURL(),
+      title: wc.getTitle(),
+      text,
+      elements: results.flatMap((r) => r.elements).slice(0, 240),
+      frames: results.map(({ text, elements, ...r }) => ({
+        ...r,
+        returned_characters: Math.min(text.length, limit),
+        next_offset:
+          r.next_offset != null || text.length > limit
+            ? (r.offset || 0) + Math.min(text.length, limit)
+            : null,
+      })),
+      frames_truncated: !options.frame_id && allFrames.length > frames.length,
+      found:
+        options.query === undefined ? undefined : results.some((r) => r.found),
+      incomplete:
+        results.some((r) => r.error) ||
+        (!options.frame_id && allFrames.length > frames.length),
       tab_id: id,
       document_epoch: e.epoch,
       snapshot_id: snapshot,
       observed_at: new Date().toISOString(),
+    };
+  }
+  async screenshot(id: string) {
+    const e = this.get(id),
+      wc = e.view.webContents;
+    const epoch = e.epoch,
+      url = wc.getURL();
+    let image = await wc.capturePage(undefined, {
+      stayHidden: true,
+      stayAwake: true,
+    });
+    if (image.isEmpty())
+      throw new Error("网页尚未绘制，暂时无法截图，请稍后重试");
+    if (e.epoch !== epoch) throw new Error("截图时页面发生导航，请重新截图");
+    const size = image.getSize();
+    const scale = Math.min(1, 1800 / Math.max(size.width, size.height));
+    if (scale < 1)
+      image = image.resize({
+        width: Math.round(size.width * scale),
+        height: Math.round(size.height * scale),
+      });
+    return {
+      tab_id: id,
+      url,
+      document_epoch: epoch,
+      ...image.getSize(),
+      scope: "当前网页可视区域",
+      captured_at: new Date().toISOString(),
+      data_url: "data:image/jpeg;base64," + image.toJPEG(85).toString("base64"),
     };
   }
   async act(id: string, name: string, args: any) {
@@ -323,7 +433,13 @@ export class BrowserManager {
       return this.observe(id);
     }
     if (name === "scroll") {
-      await e.view.webContents.executeJavaScript(
+      const frame = args.frame_id
+        ? e.view.webContents.mainFrame.framesInSubtree.find(
+            (f) => String(f.frameTreeNodeId) === args.frame_id,
+          )
+        : e.view.webContents.mainFrame;
+      if (!frame) throw new Error("目标框架已关闭，请重新观察");
+      await frame.executeJavaScript(
         `window.scrollBy({top:${Number(args.pixels) || 600},behavior:'instant'})`,
       );
       return this.observe(id);
@@ -339,21 +455,33 @@ export class BrowserManager {
     }
     if (args.document_epoch !== e.epoch)
       throw new Error("TARGET_STALE：页面已导航，请重新 observe_page");
-    const result = await e.view.webContents.executeJavaScriptInIsolatedWorld(
-      999,
-      [
-        {
-          code: `(${actDOM.toString()})(${JSON.stringify(name)},${JSON.stringify(args)})`,
-        },
-      ],
-      true,
-    );
+    const [frameId, elementRef] = String(args.element_ref).split(":");
+    const target = e.snapshots?.get(frameId);
+    if (
+      !target ||
+      target.snapshot !== args.snapshot_id ||
+      target.frame.isDestroyed() ||
+      target.frame.detached
+    )
+      throw new Error("TARGET_STALE：元素所属框架已变化，请重新观察");
+    const code = `(${actDOM.toString()})(${JSON.stringify(name)},${JSON.stringify({ ...args, element_ref: elementRef })})`;
+    const result: any =
+      target.frame === e.view.webContents.mainFrame
+        ? await e.view.webContents.executeJavaScriptInIsolatedWorld(
+            999,
+            [{ code }],
+            true,
+          )
+        : await target.frame.executeJavaScript(code, true);
     if (result.error) throw new Error(result.error);
     await new Promise((r) => setTimeout(r, 180));
     return { action: result, observation: await this.observe(id) };
   }
 }
-function observeDOM(snapshot: string) {
+function observeDOM(
+  snapshot: string,
+  options: { offset?: number; query?: string } = {},
+) {
   const w = window as any;
   const refs = new Map<string, Element>();
   const visible = (e: Element) => {
@@ -401,10 +529,28 @@ function observeDOM(snapshot: string) {
   }
   scan(document);
   w.__lightboatSnapshot = { id: snapshot, refs };
+  const fullText = document.body?.innerText || "";
+  const match =
+    options.query === undefined
+      ? -1
+      : fullText.toLowerCase().indexOf(options.query.toLowerCase());
+  const offset =
+    options.query === undefined
+      ? Math.min(options.offset || 0, fullText.length)
+      : Math.max(0, match - 500);
+  const text =
+    options.query !== undefined && match < 0
+      ? ""
+      : fullText.slice(offset, offset + 14000);
   return {
     url: location.href,
     title: document.title,
-    text: (document.body?.innerText || "").slice(0, 14000),
+    text,
+    offset,
+    total_characters: fullText.length,
+    next_offset:
+      offset + text.length < fullText.length ? offset + text.length : null,
+    found: options.query === undefined ? undefined : match >= 0,
     elements,
     scrollY,
     viewport: { width: innerWidth, height: innerHeight },

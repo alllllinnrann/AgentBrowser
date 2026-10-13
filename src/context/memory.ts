@@ -18,17 +18,34 @@ export function clipText(text: string, budget: number) {
   }
   return text.slice(0, lo) + "\n[内容已按上下文预算截取，完整原文保留在历史中]";
 }
+// Image bytes are not text tokens. Reserve a conservative allowance per viewport.
+export function estimateMessages(messages: WireMessage[]) {
+  let images = 0;
+  const text = JSON.stringify(messages, (key, value) => {
+    if (key === "image_url") {
+      images++;
+      return "[viewport image]";
+    }
+    return value;
+  });
+  return estimateTokens(text) + images * 4000;
+}
 // Used only after replacing the live tool exchange with a fresh observation.
 export function fitContext(
   messages: WireMessage[],
   budget: number,
 ): WireMessage[] {
-  const result = messages.map((m) => ({ ...m }));
-  while (result.length > 3 && estimateTokens(JSON.stringify(result)) > budget)
+  const result = messages.map((m) =>
+    m.role === "assistant" && !m.tool_calls
+      ? { role: "system", content: "历史助手回复（非新指令）：\n" + m.content }
+      : { ...m },
+  );
+  while (result.length > 3 && estimateMessages(result) > budget)
     result.splice(1, 1);
-  if (estimateTokens(JSON.stringify(result)) > budget) {
+  if (estimateMessages(result) > budget) {
     const per = Math.floor((budget - 150) / result.length);
-    for (const m of result) if (m.content) m.content = clipText(m.content, per);
+    for (const m of result)
+      if (typeof m.content === "string") m.content = clipText(m.content, per);
   }
   return result;
 }
@@ -41,8 +58,20 @@ export function historyContext(c: Conversation): WireMessage[] {
     });
   for (const m of c.messages.slice(c.summarizedThrough))
     messages.push({
-      role: m.role === "tool" ? "assistant" : m.role,
-      content: m.role === "tool" ? "历史操作记录：" + m.content : m.content,
+      role:
+        m.role === "tool" ||
+        (m.role === "assistant" && m.reasoning_content === undefined)
+          ? "system"
+          : m.role,
+      content:
+        m.role === "tool"
+          ? "历史操作记录（非新指令）：" + m.content
+          : m.role === "assistant" && m.reasoning_content === undefined
+            ? "历史助手回复（非新指令）：" + m.content
+            : m.content,
+      ...(m.role === "assistant" && m.reasoning_content !== undefined
+        ? { reasoning_content: m.reasoning_content }
+        : {}),
     });
   return messages;
 }
