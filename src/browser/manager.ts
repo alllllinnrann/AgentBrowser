@@ -1,7 +1,7 @@
 import { BrowserWindow, WebContentsView, session, Menu } from "electron";
 import { MouseGesture } from "./gestures";
 import { randomUUID } from "node:crypto";
-import type { WebFrameMain } from "electron";
+import type { WebFrameMain, NativeImage } from "electron";
 import type { Tab } from "../shared/types";
 async function readWithTimeout<T>(work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -46,6 +46,16 @@ type Entry = {
   epoch: number;
   scroll?: number;
   snapshots?: Map<string, { frame: WebFrameMain; snapshot: string }>;
+  screenshot?: {
+    id: string;
+    epoch: number;
+    time: number;
+    image: NativeImage;
+    width: number;
+    height: number;
+    zoom: number;
+  };
+  injectedClick?: { x: number; y: number; events: Set<string> };
 };
 export class BrowserManager {
   entries = new Map<string, Entry>();
@@ -155,6 +165,19 @@ export class BrowserManager {
     wc.on("blur", () => gesture.cancel());
     wc.on("did-start-navigation", () => gesture.cancel());
     wc.on("before-mouse-event", (event, input) => {
+      const injected = e.injectedClick;
+      if (
+        injected &&
+        input.button === "left" &&
+        input.x === injected.x &&
+        input.y === injected.y &&
+        injected.events.delete(input.type)
+      ) {
+        if (!injected.events.size) e.injectedClick = undefined;
+        return;
+      }
+      if (["mouseDown", "mouseWheel"].includes(input.type))
+        e.screenshot = undefined;
       if (input.type === "mouseDown" && id === this.active && !this.hidden)
         wc.focus();
       if (
@@ -416,7 +439,19 @@ export class BrowserManager {
         width: Math.round(size.width * scale),
         height: Math.round(size.height * scale),
       });
+    const bounds = e.view.getBounds();
+    const screenshotId = randomUUID();
+    e.screenshot = {
+      id: screenshotId,
+      epoch,
+      time: Date.now(),
+      image,
+      width: bounds.width,
+      height: bounds.height,
+      zoom: wc.getZoomFactor(),
+    };
     return {
+      screenshot_id: screenshotId,
       tab_id: id,
       url,
       document_epoch: epoch,
@@ -426,8 +461,89 @@ export class BrowserManager {
       data_url: "data:image/jpeg;base64," + image.toJPEG(85).toString("base64"),
     };
   }
-  async act(id: string, name: string, args: any) {
+  async act(id: string, name: string, args: any, signal?: AbortSignal) {
     const e = this.get(id);
+    if (name === "click_coordinates") {
+      const shot = e.screenshot,
+        wc = e.view.webContents,
+        bounds = e.view.getBounds();
+      if (
+        !shot ||
+        shot.id !== args.screenshot_id ||
+        shot.epoch !== e.epoch ||
+        Date.now() - shot.time > 60000 ||
+        shot.width !== bounds.width ||
+        shot.height !== bounds.height ||
+        shot.zoom !== wc.getZoomFactor()
+      )
+        throw new Error("SCREENSHOT_STALE：请重新截图后点击");
+      const size = shot.image.getSize();
+      if (
+        !Number.isFinite(args.x) ||
+        !Number.isFinite(args.y) ||
+        args.x < 0 ||
+        args.y < 0 ||
+        args.x >= size.width ||
+        args.y >= size.height
+      )
+        throw new Error("坐标超出截图范围");
+      // Check the target neighborhood, so unrelated animation elsewhere does not block a click.
+      const current = (
+        await wc.capturePage(undefined, { stayHidden: true, stayAwake: true })
+      ).resize(size);
+      signal?.throwIfAborted();
+      const rect = {
+        x: Math.max(0, Math.floor(args.x) - 24),
+        y: Math.max(0, Math.floor(args.y) - 24),
+        width: 1,
+        height: 1,
+      };
+      rect.width = Math.min(48, size.width - rect.x);
+      rect.height = Math.min(48, size.height - rect.y);
+      if (
+        e.screenshot !== shot ||
+        e.epoch !== shot.epoch ||
+        e.view.getBounds().width !== shot.width ||
+        e.view.getBounds().height !== shot.height ||
+        wc.getZoomFactor() !== shot.zoom ||
+        !current.crop(rect).toPNG().equals(shot.image.crop(rect).toPNG())
+      )
+        throw new Error("SCREENSHOT_STALE：点击位置的画面已变化，请重新截图");
+      const x = Math.min(
+        bounds.width - 1,
+        Math.floor((args.x * bounds.width) / size.width),
+      );
+      const y = Math.min(
+        bounds.height - 1,
+        Math.floor((args.y * bounds.height) / size.height),
+      );
+      e.screenshot = undefined;
+      const injected = { x, y, events: new Set(["mouseDown", "mouseUp"]) };
+      e.injectedClick = injected;
+      try {
+        wc.sendInputEvent({
+          type: "mouseDown",
+          button: "left",
+          x,
+          y,
+          clickCount: 1,
+        });
+        wc.sendInputEvent({
+          type: "mouseUp",
+          button: "left",
+          x,
+          y,
+          clickCount: 1,
+        });
+        await new Promise((r) => setTimeout(r, 180));
+      } finally {
+        if (e.injectedClick === injected) e.injectedClick = undefined;
+      }
+      return {
+        action: { status: "click_dispatched", x: args.x, y: args.y },
+        observation: await this.observe(id),
+      };
+    }
     if (name === "navigate") {
       await this.navigate(id, args.url);
       return this.observe(id);

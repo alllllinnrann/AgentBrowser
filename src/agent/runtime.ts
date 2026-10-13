@@ -296,6 +296,6 @@ export class AgentRuntime {
             : "未找到",
       };
     }
-    return this.browser.act(this.target, name, args);
+    return this.browser.act(this.target, name, args, signal);
   }
 }

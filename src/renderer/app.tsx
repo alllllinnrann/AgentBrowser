@@ -8,6 +8,7 @@ const detached = new URLSearchParams(location.search).has("chat");
 const toolLabels: Record<string, string> = {
   observe_page: "读取网页",
   capture_screenshot: "截取网页",
+  click_coordinates: "点击网页位置",
   list_tabs: "查看标签",
   open_tab: "打开网页",
   navigate: "导航",
