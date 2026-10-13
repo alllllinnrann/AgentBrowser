@@ -1,0 +1,63 @@
+{
+  "name": "agent-browser",
+  "productName": "轻舟 Agent Browser",
+  "version": "0.3.0",
+  "private": true,
+  "description": "A local-first browser with a visible, interruptible web agent",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "check": "tsc --noEmit",
+    "package": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:dir": "npm run build && electron-builder --win dir --x64 --publish never"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "electron": "44.4.2",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.0"
+  },
+  "build": {
+    "appId": "local.lightboat.agentbrowser",
+    "executableName": "AgentBrowser",
+    "directories": {
+      "output": "outputs/releases"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AgentBrowser",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "artifactName": "AgentBrowser-Setup-${version}-${arch}.${ext}"
+    },
+    "asar": true
+  }
+}
