@@ -30,6 +30,7 @@
   "build": {
     "appId": "local.lightboat.agentbrowser",
     "executableName": "AgentBrowser",
+    "electronLanguages": ["zh-CN", "zh-TW", "en-US"],
     "directories": {
       "output": "outputs/releases"
     },
