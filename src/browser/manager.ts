@@ -1,8 +1,9 @@
 import { BrowserWindow, WebContentsView, session, Menu } from "electron";
-import { MouseGesture } from "./gestures";
+import { MouseGesture, paintGesture } from "./gestures";
 import { randomUUID } from "node:crypto";
 import type { WebFrameMain, NativeImage } from "electron";
 import type { Tab } from "../shared/types";
+import type { TaskFiles } from "../files/tasks";
 async function readWithTimeout<T>(work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -64,6 +65,9 @@ export class BrowserManager {
   hidden = false;
   controlled = "";
   onInterrupt = () => {};
+  files?: TaskFiles;
+  private downloadOwners = new Map<number, string>();
+  downloadTask = (_webContentsId: number) => undefined as string | undefined;
   constructor(
     public win: BrowserWindow,
     public changed: () => void,
@@ -80,10 +84,13 @@ export class BrowserManager {
     const s = session.fromPartition("persist:browsing");
     s.setPermissionRequestHandler((_w, _p, cb) => cb(false));
     s.setPermissionCheckHandler(() => false);
-    s.on("will-download", (_e, item) => {
-      item.once("done", (_e, state) => {
-        if (state !== "completed") console.warn("Download", state);
-      });
+    s.on("will-download", (_e, item, contents) => {
+      if (this.files)
+        this.files.capture(
+          item,
+          this.downloadTask(contents?.id) ||
+            this.downloadOwners.get(contents?.id),
+        );
     });
   }
   list() {
@@ -116,12 +123,21 @@ export class BrowserManager {
     view.setBackgroundColor("#ffffff");
     const wc = view.webContents;
     wc.setZoomFactor(zoom);
+    wc.on("zoom-changed", (_event, direction) => {
+      if (id !== this.active || this.hidden) return;
+      this.zoom(wc.getZoomFactor() + (direction === "in" ? 0.1 : -0.1));
+    });
     wc.setWindowOpenHandler(({ url }) => {
       try {
-        this.add(url);
+        const owner =
+          this.downloadTask(wc.id) || this.downloadOwners.get(wc.id);
+        const child = this.add(url);
+        if (owner)
+          this.downloadOwners.set(this.get(child).view.webContents.id, owner);
       } catch {}
       return { action: "deny" };
     });
+    wc.once("destroyed", () => this.downloadOwners.delete(wc.id));
     wc.on("will-navigate", (event, url) => {
       if (!/^https?:\/\//i.test(url) && url !== "about:blank")
         event.preventDefault();
@@ -160,7 +176,29 @@ export class BrowserManager {
         event.preventDefault();
       }
     });
-    const gesture = new MouseGesture();
+    const gesture = new MouseGesture((phase, x, y, path) => {
+      if (wc.isDestroyed()) return;
+      const labels: Record<string, string> = {
+        L: "后退",
+        R: "前进",
+        U: "向上滚动",
+        D: "向下滚动",
+        UD: "刷新",
+        DR: "关闭标签页",
+      };
+      let label = path ? labels[path] || "无效手势" : "";
+      if (path === "L" && !wc.navigationHistory.canGoBack()) label = "无法后退";
+      if (path === "R" && !wc.navigationHistory.canGoForward())
+        label = "无法前进";
+      const zoom = wc.getZoomFactor();
+      void wc
+        .executeJavaScriptInIsolatedWorld(999, [
+          {
+            code: `(${paintGesture.toString()})(${JSON.stringify(phase)},${x / zoom},${y / zoom},${JSON.stringify(label)})`,
+          },
+        ])
+        .catch(() => {});
+    });
     let suppressMenuUntil = 0;
     wc.on("blur", () => gesture.cancel());
     wc.on("did-start-navigation", () => gesture.cancel());
@@ -205,6 +243,14 @@ export class BrowserManager {
               break;
             case "UD":
               wc.reload();
+              break;
+            case "U":
+            case "D":
+              void wc
+                .executeJavaScript(
+                  `window.scrollBy({top: ${result.action === "U" ? "-" : ""}Math.round(innerHeight * .8), behavior: 'smooth'})`,
+                )
+                .catch(() => {});
               break;
             case "DR":
               this.close(id);
@@ -336,8 +382,13 @@ export class BrowserManager {
   }
   zoom(value: number) {
     const e = this.get();
-    e.tab.zoom = Math.max(0.3, Math.min(3, value));
+    if (this.controlled === this.active) this.onInterrupt();
+    e.screenshot = undefined;
+    e.tab.zoom = Math.max(0.3, Math.min(3, Math.round(value * 100) / 100));
     e.view.webContents.setZoomFactor(e.tab.zoom);
+    for (const entry of this.entries.values()) {
+      entry.tab.zoom = entry.view.webContents.getZoomFactor();
+    }
     this.changed();
   }
   async observe(
@@ -418,6 +469,38 @@ export class BrowserManager {
       document_epoch: e.epoch,
       snapshot_id: snapshot,
       observed_at: new Date().toISOString(),
+    };
+  }
+  async resources(id: string, offset = 0) {
+    const frames = this.get(
+      id,
+    ).view.webContents.mainFrame.framesInSubtree.slice(0, 24);
+    const resources: any[] = [],
+      errors: any[] = [];
+    for (const frame of frames) {
+      try {
+        const items: any = await readWithTimeout(
+          frame.executeJavaScript(`(${collectResources.toString()})()`),
+        );
+        resources.push(
+          ...items.map((r: any) => ({
+            ...r,
+            frame_id: String(frame.frameTreeNodeId),
+          })),
+        );
+      } catch {
+        errors.push({
+          frame_id: String(frame.frameTreeNodeId),
+          error: "框架暂不可读取",
+        });
+      }
+    }
+    return {
+      resources: resources.slice(offset, offset + 80),
+      total: resources.length,
+      next_offset: offset + 80 < resources.length ? offset + 80 : null,
+      errors,
+      scope: "当前已加载 DOM；候选链接不保证是原图",
     };
   }
   async screenshot(id: string) {
@@ -732,4 +815,60 @@ function actDOM(name: string, args: any) {
     };
   }
   return { error: "未知操作" };
+}
+
+function collectResources() {
+  const result: any[] = [],
+    seen = new Set<string>();
+  const add = (url: string, data: any) => {
+    try {
+      const u = new URL(url, document.baseURI);
+      if (!/^https?:$/.test(u.protocol) || seen.has(u.href)) return;
+      seen.add(u.href);
+      result.push({ url: u.href, ...data });
+    } catch {}
+  };
+  const scan = (root: Document | ShadowRoot) => {
+    for (const el of root.querySelectorAll("*")) {
+      if (el.shadowRoot) scan(el.shadowRoot);
+      if (el instanceof HTMLImageElement) {
+        const label = el.alt || el.title || el.getAttribute("aria-label") || "";
+        add(el.currentSrc || el.src, {
+          kind: "image",
+          label,
+          width: el.naturalWidth,
+          height: el.naturalHeight,
+        });
+        for (const attr of [
+          "data-src",
+          "data-original",
+          "data-full",
+          "data-large",
+        ]) {
+          const u = el.getAttribute(attr);
+          if (u) add(u, { kind: "candidate_image", label });
+        }
+        if (el.srcset)
+          for (const entry of el.srcset.split(",")) {
+            const u = entry.trim().split(/\s+/)[0];
+            if (u) add(u, { kind: "candidate_image", label });
+          }
+        const link = el.closest("a");
+        if (link?.href)
+          add(link.href, {
+            kind: "candidate_link",
+            label: label || link.textContent?.trim(),
+          });
+      } else if (el instanceof HTMLAnchorElement && el.href) {
+        const label = (el.textContent || el.title || "").trim().slice(0, 200);
+        add(el.href, {
+          kind: el.hasAttribute("download") ? "attachment" : "link",
+          label,
+          filename: el.getAttribute("download") || undefined,
+        });
+      }
+    }
+  };
+  scan(document);
+  return result;
 }

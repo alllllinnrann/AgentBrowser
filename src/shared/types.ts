@@ -44,6 +44,8 @@ export type Schedule = {
   status: string;
 };
 export type State = {
+  files: import("../files/tasks").ResourceFile[];
+  filesError: string;
   tabs: Tab[];
   activeTab: string;
   conversations: Conversation[];

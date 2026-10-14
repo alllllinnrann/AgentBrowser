@@ -6,6 +6,13 @@ import { MarkdownMessage } from "./markdown";
 import "./style.css";
 const detached = new URLSearchParams(location.search).has("chat");
 const toolLabels: Record<string, string> = {
+  list_resources: "查找网页资源",
+  download_resource: "下载图片",
+  list_task_files: "查看任务文件",
+  read_image: "读取图片",
+  save_result: "保存结果",
+  read_result: "读取结果",
+  task_progress: "记录任务进度",
   observe_page: "读取网页",
   capture_screenshot: "截取网页",
   click_coordinates: "点击网页位置",
@@ -196,15 +203,33 @@ function App() {
                 }}
               />
             </form>
-            {tab?.zoom !== 1 && (
+            <div className="zoom-controls" role="group" aria-label="网页缩放">
+              <IconButton
+                icon="minus"
+                label="缩小网页"
+                disabled={(tab?.zoom || 1) <= 0.3}
+                onClick={() => call("zoom", (tab?.zoom || 1) - 0.1)}
+              />
               <button
                 className="zoom"
-                title="重置缩放"
+                title="恢复 100% · Ctrl+0；Ctrl+滚轮缩放"
+                aria-label="恢复网页缩放至100%"
                 onClick={() => call("zoom", 1)}
               >
                 {Math.round((tab?.zoom || 1) * 100)}%
               </button>
-            )}
+              <IconButton
+                icon="plus"
+                label="放大网页"
+                disabled={(tab?.zoom || 1) >= 3}
+                onClick={() => call("zoom", (tab?.zoom || 1) + 0.1)}
+              />
+            </div>
+            <IconButton
+              icon="download"
+              label="下载记录"
+              onClick={() => setModal("downloads")}
+            />
             <IconButton
               icon="panel"
               label={s.sidebar ? "收起 Agent" : "显示 Agent"}
@@ -239,6 +264,11 @@ function App() {
             />
           )}
           <div className="agent-head">
+            <IconButton
+              icon="folder"
+              label="任务文件"
+              onClick={() => setModal("files")}
+            />
             <strong>Agent</strong>
             <div className="head-actions">
               <IconButton
@@ -477,6 +507,8 @@ function App() {
                     schedules: "定时任务",
                     history: "历史对话",
                     memory: "记忆",
+                    files: "任务文件",
+                    downloads: "下载记录",
                   }[modal]
                 }
               </h2>
@@ -486,6 +518,79 @@ function App() {
                 onClick={() => setModal("")}
               />
             </div>
+            {(modal === "files" || modal === "downloads") && (
+              <div className="file-panel">
+                <div className="footer-actions">
+                  {modal === "files" && (
+                    <button onClick={() => call("importTaskFiles")}>
+                      <Icon name="plus" size={16} />
+                      添加图片
+                    </button>
+                  )}
+                  <IconButton
+                    icon="folder"
+                    label="打开所在目录"
+                    onClick={() =>
+                      call(modal === "files" ? "taskFolder" : "downloadFolder")
+                    }
+                  />
+                </div>
+                {s.filesError && <p className="danger-text">{s.filesError}</p>}
+                {!s.files.some((f) =>
+                  modal === "files" ? f.task === chat?.id : f.kind !== "result",
+                ) && <div className="empty-small">暂无文件</div>}
+                {s.files
+                  .filter((f) =>
+                    modal === "files"
+                      ? f.task === chat?.id
+                      : f.kind !== "result",
+                  )
+                  .map((f) => (
+                    <div className="file-row" key={f.id}>
+                      <Icon
+                        name={f.kind === "result" ? "document" : "download"}
+                      />
+                      <div className="file-info">
+                        <strong title={f.name}>{f.name}</strong>
+                        <small>
+                          {(
+                            {
+                              completed: "已完成",
+                              downloading: "下载中",
+                              failed: "失败",
+                              cancelled: "已取消",
+                              interrupted: "已中断",
+                            } as Record<string, string>
+                          )[f.status] || f.status}{" "}
+                          · {(f.bytes / 1024 / 1024).toFixed(1)} MB
+                          {f.width ? ` · ${f.width} × ${f.height}` : ""}
+                        </small>
+                        {f.status === "downloading" && (
+                          <progress
+                            value={f.total ? f.bytes : undefined}
+                            max={f.total || 1}
+                          />
+                        )}
+                        {f.error && (
+                          <small className="danger-text">{f.error}</small>
+                        )}
+                      </div>
+                      <IconButton
+                        icon="external"
+                        label="打开文件"
+                        disabled={f.status !== "completed"}
+                        onClick={() => call("openTaskFile", f.id)}
+                      />
+                      <IconButton
+                        icon="folder"
+                        label="显示文件位置"
+                        disabled={f.status !== "completed"}
+                        onClick={() => call("showTaskFile", f.id)}
+                      />
+                    </div>
+                  ))}
+              </div>
+            )}
             {modal === "settings" && (
               <SettingsForm
                 settings={s.settings}

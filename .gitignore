@@ -22,3 +22,4 @@ archive/
 .npmrc
 .DS_Store
 Thumbs.db
+Data/

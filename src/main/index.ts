@@ -15,6 +15,7 @@ import { z } from "zod";
 import { Store, defaults } from "../storage/store";
 import { BrowserManager, normalizeUrl } from "../browser/manager";
 import { AgentRuntime } from "../agent/runtime";
+import { TaskFiles } from "../files/tasks";
 import { completion } from "../models/client";
 import { localDay, due } from "./scheduler";
 import type { State, Settings, Conversation, Schedule } from "../shared/types";
@@ -24,6 +25,7 @@ let win: BrowserWindow,
   store: Store,
   browser: BrowserManager,
   agent: AgentRuntime;
+let files: TaskFiles;
 let settings: Settings,
   conversations: Conversation[],
   schedules: Schedule[],
@@ -41,6 +43,8 @@ function persist() {
 }
 function state(): State {
   return {
+    files: files.records,
+    filesError: files.error,
     tabs: browser.list(),
     activeTab: browser.active,
     conversations,
@@ -149,7 +153,21 @@ app.whenReady().then(async () => {
     },
   });
   browser = new BrowserManager(win, broadcast);
-  agent = new AgentRuntime(browser, broadcast, persist, () => settings, getKey);
+  files = new TaskFiles(broadcast);
+  browser.files = files;
+  browser.downloadTask = (webContentsId) =>
+    agent?.running &&
+    browser.entries.get(agent.target)?.view.webContents.id === webContentsId
+      ? agent.conversation
+      : undefined;
+  agent = new AgentRuntime(
+    browser,
+    broadcast,
+    persist,
+    () => settings,
+    getKey,
+    files,
+  );
   browser.onInterrupt = () => agent.stop("你已手动操作网页，自动任务已停止");
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -184,6 +202,32 @@ app.whenReady().then(async () => {
     if (!trusted || event.senderFrame !== sender.mainFrame)
       throw new Error("拒绝网页访问桌面控制接口");
     switch (command) {
+      case "importTaskFiles": {
+        const result = await dialog.showOpenDialog(win, {
+          properties: ["openFile", "multiSelections"],
+          filters: [
+            {
+              name: "图片",
+              extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"],
+            },
+          ],
+        });
+        for (const path of result.filePaths)
+          files.import(activeChat().id, path);
+        break;
+      }
+      case "taskFolder":
+        await files.folder(activeChat().id);
+        break;
+      case "downloadFolder":
+        await files.folder();
+        break;
+      case "openTaskFile":
+        await files.open(z.string().parse(payload));
+        break;
+      case "showTaskFile":
+        await files.open(z.string().parse(payload), true);
+        break;
       case "state":
         return state();
       case "newTab":

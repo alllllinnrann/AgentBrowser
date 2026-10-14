@@ -77,3 +77,36 @@ Function AgentDirectoryLeave
   ${NSD_SetText} $directoryInput $INSTDIR
 FunctionEnd
 !endif
+
+# Keep task resources and any other user-added files during uninstall/update.
+!macro customRemoveFiles
+  SetOutPath $TEMP
+  Delete "$INSTDIR\${UNINSTALL_FILENAME}"
+  Delete "$INSTDIR\AgentBrowser.exe"
+  Delete "$INSTDIR\chrome_100_percent.pak"
+  Delete "$INSTDIR\chrome_200_percent.pak"
+  Delete "$INSTDIR\d3dcompiler_47.dll"
+  Delete "$INSTDIR\dxcompiler.dll"
+  Delete "$INSTDIR\dxil.dll"
+  Delete "$INSTDIR\ffmpeg.dll"
+  Delete "$INSTDIR\icudtl.dat"
+  Delete "$INSTDIR\LICENSE.electron.txt"
+  Delete "$INSTDIR\LICENSES.chromium.html"
+  Delete "$INSTDIR\resources.pak"
+  Delete "$INSTDIR\snapshot_blob.bin"
+  Delete "$INSTDIR\v8_context_snapshot.bin"
+  Delete "$INSTDIR\version"
+  Delete "$INSTDIR\vk_swiftshader_icd.json"
+  Delete "$INSTDIR\vk_swiftshader.dll"
+  Delete "$INSTDIR\vulkan-1.dll"
+  Delete "$INSTDIR\locales\en-US.pak"
+  Delete "$INSTDIR\locales\zh-CN.pak"
+  Delete "$INSTDIR\locales\zh-TW.pak"
+  Delete "$INSTDIR\resources\app-update.yml"
+  Delete "$INSTDIR\resources\app.asar"
+  Delete "$INSTDIR\resources\default_app.asar"
+  Delete "$INSTDIR\resources\elevate.exe"
+  RMDir "$INSTDIR\locales"
+  RMDir "$INSTDIR\resources"
+  RMDir "$INSTDIR"
+!macroend
