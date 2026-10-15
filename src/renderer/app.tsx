@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { State, Settings, Schedule } from "../shared/types";
 import { Icon, IconButton } from "./icons";
 import { MarkdownMessage } from "./markdown";
+import { ToolActivity } from "./activity";
 import "./style.css";
 const detached = new URLSearchParams(location.search).has("chat");
 const toolLabels: Record<string, string> = {
@@ -264,13 +265,16 @@ function App() {
             />
           )}
           <div className="agent-head">
-            <IconButton
-              icon="folder"
-              label="任务文件"
-              onClick={() => setModal("files")}
-            />
-            <strong>Agent</strong>
+            <div className="agent-identity">
+              <Icon name="agent" size={19} />
+              <strong>Agent</strong>
+            </div>
             <div className="head-actions">
+              <IconButton
+                icon="folder"
+                label="任务文件"
+                onClick={() => setModal("files")}
+              />
               <IconButton
                 icon="history"
                 label="历史对话"
@@ -348,28 +352,26 @@ function App() {
                 </div>
               </div>
             )}
-            {chat?.messages.map((m) =>
+            {chat?.messages.map((m, index, messages) =>
               m.role === "tool" ? (
-                <details
-                  className={
-                    "tool-message " +
-                    (m.content.includes('"error"') ? "failed" : "")
-                  }
-                  key={m.id}
-                >
-                  <summary>
-                    <Icon
-                      name={m.content.includes('"error"') ? "alert" : "check"}
-                      size={14}
-                    />
-                    <span>
-                      {toolLabels[m.content.split("\n")[0]] ||
-                        m.content.split("\n")[0]}
-                    </span>
-                    <Icon name="chevron" size={13} />
-                  </summary>
-                  <pre>{m.content.split("\n").slice(1).join("\n")}</pre>
-                </details>
+                index > 0 && messages[index - 1].role === "tool" ? null : (
+                  <ToolActivity
+                    key={m.id}
+                    labels={toolLabels}
+                    messages={messages.slice(
+                      index,
+                      (() => {
+                        let end = index + 1;
+                        while (
+                          end < messages.length &&
+                          messages[end].role === "tool"
+                        )
+                          end++;
+                        return end;
+                      })(),
+                    )}
+                  />
+                )
               ) : (
                 <div className={"message " + m.role} key={m.id}>
                   <div className="message-label">

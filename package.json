@@ -1,8 +1,9 @@
 {
   "name": "agent-browser",
   "productName": "轻舟 Agent Browser",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
+  "license": "MIT",
   "description": "A local-first browser with a visible, interruptible web agent",
   "main": "dist/main.cjs",
   "scripts": {
@@ -43,6 +44,7 @@
     "files": [
       "dist/**/*",
       "package.json",
+      "LICENSE",
       "!node_modules/**/*"
     ],
     "win": {

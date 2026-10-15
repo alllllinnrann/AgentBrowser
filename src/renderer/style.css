@@ -1044,3 +1044,271 @@ aside {
   padding: 4px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Agent panel: macOS-inspired surfaces, with system fonts on Windows. */
+aside {
+  --panel-accent: #007aff;
+  --panel-muted: #86868b;
+  --panel-line: #0000000d;
+  background: linear-gradient(160deg, #f8f9fc, #f5f5f7 55%, #f0f3f8);
+  border-left: 1px solid #dcdde2;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Microsoft YaHei",
+    sans-serif;
+  container-type: inline-size;
+}
+aside .agent-head {
+  height: 60px;
+  padding: 0 18px;
+  gap: 8px;
+}
+.agent-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #1d1d1f;
+}
+.agent-identity > svg {
+  color: var(--panel-accent);
+}
+aside .head-actions {
+  gap: 2px;
+}
+aside .head-actions .icon-button {
+  width: 28px;
+  height: 30px;
+  border-radius: 8px;
+}
+aside .icon-button {
+  color: #6e6e73;
+}
+aside .icon-button:hover {
+  background: #00000006;
+  color: var(--panel-accent);
+}
+aside .icon-button:active {
+  background: #007aff14;
+}
+aside .conversation-row {
+  padding: 0 18px 12px;
+}
+aside .conversation-row select {
+  padding: 8px 10px;
+  background: #ffffffb8;
+  border: 1px solid #00000006;
+  border-radius: 9px;
+  font-size: 12px;
+  color: #515154;
+}
+aside .target {
+  margin: 0 18px;
+  padding: 6px 2px 10px;
+  height: 32px;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--panel-line);
+  color: #86868b;
+}
+aside .target.active {
+  color: #0066cc;
+}
+aside .messages {
+  padding: 18px 22px 24px;
+  scrollbar-gutter: stable;
+}
+aside .message {
+  flex-shrink: 0;
+  margin: 6px 0 24px;
+  line-height: 1.8;
+}
+aside .message-body {
+  font-size: 13px;
+  color: #29292d;
+}
+aside .message.user {
+  align-self: flex-end;
+  max-width: 92%;
+}
+aside .message.user .message-label {
+  display: none;
+}
+aside .message.user .message-body {
+  background: #e8edf6;
+  padding: 11px 15px;
+  border-radius: 17px 17px 5px 17px;
+  color: #303a4b;
+}
+aside .message.assistant .message-label {
+  color: #007aff;
+  margin-bottom: 10px;
+}
+aside .message-label time {
+  color: #9c9ca3;
+  font-size: 10px;
+}
+aside .markdown a {
+  color: #0066cc;
+}
+aside .empty-chat {
+  gap: 26px;
+  color: #a6b0c3;
+}
+aside .empty-chat > svg {
+  width: 54px;
+  height: 54px;
+  padding: 12px;
+  border-radius: 17px;
+  background: #ffffffb8;
+  color: #6488bb;
+  box-shadow: 0 3px 15px #263c6407;
+}
+aside .quick-actions button {
+  border: 1px solid #00000006;
+  border-radius: 12px;
+  padding: 10px 13px;
+  background: #ffffffc9;
+  color: #626873;
+  box-shadow: 0 2px 5px #00000003;
+}
+aside .quick-actions button:hover {
+  background: white;
+  color: #007aff;
+}
+.activity-group {
+  flex-shrink: 0;
+  margin: 0 0 16px;
+  color: #81818a;
+  font-size: 11px;
+}
+.activity-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+  cursor: pointer;
+  padding: 7px 0;
+  width: fit-content;
+  border-radius: 6px;
+}
+.activity-group > summary::-webkit-details-marker {
+  display: none;
+}
+.activity-group > summary:hover {
+  color: #007aff;
+}
+.activity-group > summary > svg:last-child {
+  transition: transform 120ms ease;
+  margin-left: 3px;
+}
+.activity-group[open] > summary > svg:last-child {
+  transform: rotate(90deg);
+}
+.activity-list {
+  border-left: 1px solid #dcdfe6;
+  margin: 3px 0 2px 6px;
+  padding-left: 13px;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 0;
+}
+.activity-row small {
+  margin-left: auto;
+  color: #8e8e96;
+  font-size: 10px;
+}
+aside .composer-wrap {
+  padding: 0 16px 16px;
+  background: linear-gradient(transparent, #f3f5f9 30%);
+}
+aside .phase {
+  padding: 0 4px;
+  font-size: 11px;
+  color: #86868b;
+}
+aside .composer {
+  border: 1px solid #0000000e;
+  border-radius: 18px;
+  padding: 12px;
+  background: #fffffff2;
+  box-shadow:
+    0 4px 20px #192b4e08,
+    0 1px 3px #00000004;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+aside .composer:focus-within {
+  border-color: #007aff66;
+  box-shadow:
+    0 0 0 3px #007aff0c,
+    0 4px 20px #192b4e08;
+}
+aside .composer textarea {
+  height: 76px;
+  min-height: 60px;
+  padding: 2px 4px;
+  font-size: 13px;
+}
+aside .composer textarea::placeholder {
+  color: #a1a1a8;
+}
+aside .model-badge {
+  min-width: 0;
+  color: #797981;
+  font-size: 11px;
+  border-radius: 7px;
+}
+aside .memory-button {
+  color: #919199;
+}
+aside .composer-actions {
+  gap: 8px;
+}
+aside .send-button {
+  background: #007aff;
+  color: white;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+}
+aside .send-button:hover {
+  background: #0066dd;
+  color: white;
+}
+aside .send-button:active {
+  background: #0056bb;
+}
+aside .send-button:disabled {
+  background: #e9ebef;
+  color: #b2b6bf;
+}
+aside :is(button, select, summary):focus-visible {
+  outline: 2px solid #007aff99;
+  outline-offset: 3px;
+}
+@container (max-width: 360px) {
+  aside .agent-head {
+    padding: 0 12px;
+  }
+  .agent-identity {
+    gap: 5px;
+  }
+  .agent-identity strong {
+    font-size: 13px;
+  }
+  aside .head-actions {
+    gap: 0;
+  }
+  aside .head-actions .icon-button {
+    width: 25px;
+  }
+  aside .head-actions .divider {
+    margin: 0 2px;
+  }
+  aside .messages {
+    padding-inline: 16px;
+  }
+}
