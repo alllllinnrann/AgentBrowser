@@ -45,7 +45,7 @@ jobs:
         run: npm run check
 
       - name: Build installer
-        run: npm run package -- --config.electronDist=node_modules/electron/dist
+        run: npm run package
 
       - name: Record checksum and build source
         env:
